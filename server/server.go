@@ -485,6 +485,8 @@ func (s *Server) unlimitedDo(pkt *protocol.Packet, connName string) response {
 				log.Errorf("Connection %v: %s: Signing error: %v\n", connName, protocol.ErrCrypto, err)
 				return makeErrResponse(pkt, protocol.ErrCrypto)
 			}
+		} else if attempts < (1 + s.signRetryCount) {
+				log.Debugf("Connection %v: retry success with %d attempt(s) left", connName, attempts-1)
 		}
 		break
 	}
