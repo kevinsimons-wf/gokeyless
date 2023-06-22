@@ -230,16 +230,19 @@ func (h *handler) loop() error {
 		pkt := new(protocol.Packet)
 		err = h.tokens.Acquire(context.Background(), 1)
 		if err != nil {
+			log.Debugf("loop : error acquire token for pkt ID %d", pkt.ID)
 			break
 		}
 		err = h.conn.SetReadDeadline(time.Now().Add(h.timeout))
 		if err != nil {
 			h.tokens.Release(1)
+			log.Debugf("loop : error set read deadline for pkt ID %d", pkt.ID)
 			break
 		}
 		_, err = pkt.ReadFrom(h.conn)
 		if err != nil {
 			h.tokens.Release(1)
+			log.Debugf("loop : error read from for pkt ID %d", pkt.ID)
 			break
 		}
 		go h.handle(pkt, time.Now())
@@ -600,9 +603,7 @@ func (s *Server) spawn(l net.Listener, c net.Conn) {
 	if err != nil {
 		// We get EOF here if the client closes the connection immediately after
 		// it's accepted, which is typical of a TCP health check.
-		if err == io.EOF {
-			log.Debugf("connection %v: closed by client before TLS handshake", c.RemoteAddr())
-		} else {
+		if err != io.EOF {
 			log.Errorf("connection %v: TLS handshake failed: %v", c.RemoteAddr(), err)
 		}
 		tconn.Close()
