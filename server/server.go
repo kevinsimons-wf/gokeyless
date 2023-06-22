@@ -187,11 +187,17 @@ func (h *handler) closeWithWritingErr(err error) {
 func (h *handler) handle(pkt *protocol.Packet, reqTime time.Time) {
 	var resp response
 	start := time.Now()
+	if pkt.Opcode != protocol.OpPing {
+		log.Debugf("start handle pkt ID %d , opcode : %d", pkt.ID, pkt.Opcode)
+	}
 	logRequest(pkt.Opcode)
 	if h.limited {
 		resp = h.s.limitedDo(pkt, h.name)
 	} else {
 		resp = h.s.unlimitedDo(pkt, h.name)
+		if pkt.Opcode != protocol.OpPing {
+			log.Debugf("end handle pkt ID %d , resp ID %d , opcode : %d", pkt.ID, resp.id, resp.op.Opcode)
+		}
 	}
 	logRequestExecDuration(pkt.Operation.Opcode, start, resp.op.ErrorVal())
 	respPkt := protocol.Packet{
@@ -289,14 +295,6 @@ func (s *Server) unlimitedDo(pkt *protocol.Packet, connName string) response {
 	span, ctx := opentracing.StartSpanFromContext(context.Background(), "operation execution", ext.RPCServerOption(spanCtx))
 	defer span.Finish()
 	tracing.SetOperationSpanTags(span, &pkt.Operation)
-
-	log.Debugf("connection %s: limited=false  opcode=%s id=%d sni=%s ip=%s ski=%v",
-		connName,
-		pkt.Operation.Opcode,
-		pkt.Header.ID,
-		pkt.Operation.SNI,
-		pkt.Operation.ServerIP,
-		pkt.Operation.SKI)
 
 	var opts crypto.SignerOpts
 	switch pkt.Operation.Opcode {
@@ -442,6 +440,7 @@ func (s *Server) unlimitedDo(pkt *protocol.Packet, connName string) response {
 	case protocol.OpRSAPSSSignSHA256, protocol.OpRSAPSSSignSHA384, protocol.OpRSAPSSSignSHA512:
 		opts = &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: opts.HashFunc()}
 	}
+
 	loadStart := time.Now()
 	key, err := s.keys.Get(ctx, &pkt.Operation)
 	logKeyLoadDuration(loadStart)
@@ -452,6 +451,14 @@ func (s *Server) unlimitedDo(pkt *protocol.Packet, connName string) response {
 		log.Errorf("failed to load key with sni=%s ip=%s ski=%v: %v", pkt.Operation.SNI, pkt.Operation.ServerIP, pkt.Operation.SKI, protocol.ErrKeyNotFound)
 		return makeErrResponse(pkt, protocol.ErrKeyNotFound)
 	}
+
+	log.Debugf("connection %s: limited=false  opcode=%s id=%d sni=%s ip=%s ski=%v",
+		connName,
+		pkt.Operation.Opcode,
+		pkt.Header.ID,
+		pkt.Operation.SNI,
+		pkt.Operation.ServerIP,
+		pkt.Operation.SKI)
 
 	signSpan, _ := opentracing.StartSpanFromContext(ctx, "execute.Sign")
 	defer signSpan.Finish()
@@ -486,7 +493,7 @@ func (s *Server) unlimitedDo(pkt *protocol.Packet, connName string) response {
 				return makeErrResponse(pkt, protocol.ErrCrypto)
 			}
 		} else if attempts < (1 + s.signRetryCount) {
-				log.Debugf("Connection %v: retry success with %d attempt(s) left", connName, attempts-1)
+				log.Debugf("Connection %v, pkt ID %d : retry success with %d attempt(s) left", connName, pkt.ID, attempts-1)
 		}
 		break
 	}
