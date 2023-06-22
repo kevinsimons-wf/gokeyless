@@ -188,7 +188,7 @@ func (h *handler) handle(pkt *protocol.Packet, reqTime time.Time) {
 	var resp response
 	start := time.Now()
 	if pkt.Opcode != protocol.OpPing {
-		log.Debugf("start handle pkt ID %d , opcode : %d", pkt.ID, pkt.Opcode)
+		log.Debugf("connection %s: start handle pkt ID %d , opcode : %d", h.name, pkt.ID, pkt.Opcode)
 	}
 	logRequest(pkt.Opcode)
 	if h.limited {
@@ -196,7 +196,7 @@ func (h *handler) handle(pkt *protocol.Packet, reqTime time.Time) {
 	} else {
 		resp = h.s.unlimitedDo(pkt, h.name)
 		if pkt.Opcode != protocol.OpPing {
-			log.Debugf("end handle pkt ID %d , resp ID %d , opcode : %d", pkt.ID, resp.id, resp.op.Opcode)
+			log.Debugf("connection %s: end handle pkt ID %d , resp ID %d , opcode : %d", h.name, pkt.ID, resp.id, resp.op.Opcode)
 		}
 	}
 	logRequestExecDuration(pkt.Operation.Opcode, start, resp.op.ErrorVal())
@@ -215,11 +215,13 @@ func (h *handler) handle(pkt *protocol.Packet, reqTime time.Time) {
 	defer logRequestTotalDuration(pkt.Operation.Opcode, reqTime, resp.op.ErrorVal())
 	err := h.conn.SetWriteDeadline(time.Now().Add(h.timeout))
 	if err != nil {
+		log.Debugf("connection %s: set write deadline error", h.name)
 		h.closeWithWritingErr(err)
 		return
 	}
 	_, err = respPkt.WriteTo(h.conn)
 	if err != nil {
+		log.Debugf("connection %s: write to error", h.name)
 		h.closeWithWritingErr(err)
 	}
 }
@@ -230,19 +232,19 @@ func (h *handler) loop() error {
 		pkt := new(protocol.Packet)
 		err = h.tokens.Acquire(context.Background(), 1)
 		if err != nil {
-			log.Debugf("loop : error acquire token for pkt ID %d", pkt.ID)
+			log.Debugf("connection %s: loop : error acquire token for pkt ID %d", h.name, pkt.ID)
 			break
 		}
 		err = h.conn.SetReadDeadline(time.Now().Add(h.timeout))
 		if err != nil {
 			h.tokens.Release(1)
-			log.Debugf("loop : error set read deadline for pkt ID %d", pkt.ID)
+			log.Debugf("connection %s: loop : error set read deadline for pkt ID %d", h.name, pkt.ID)
 			break
 		}
 		_, err = pkt.ReadFrom(h.conn)
 		if err != nil {
 			h.tokens.Release(1)
-			log.Debugf("loop : error read from for pkt ID %d", pkt.ID)
+			log.Debugf("connection %s: loop : error read from for pkt ID %d", h.name, pkt.ID)
 			break
 		}
 		go h.handle(pkt, time.Now())
